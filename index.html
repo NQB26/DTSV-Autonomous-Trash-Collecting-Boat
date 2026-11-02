@@ -205,7 +205,7 @@ async function connect() {
     return;
   }
   try {
-    dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }, { namePrefix: 'ESP32' }], optionalServices: [SVC] });
     dev.addEventListener('gattserverdisconnected', onDisc);
     setStatus('Đang kết nối...');
     const srv = await dev.gatt.connect();

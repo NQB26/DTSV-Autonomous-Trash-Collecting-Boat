@@ -15,8 +15,8 @@
 #include <Preferences.h>
 
 // ================== CẤU HÌNH ==================
-const char*    DEVICE_NAME = "ESP32-Motor";
-const uint32_t BLE_PIN     = 123456;   // <-- ĐỔI PIN (6 chữ số, 000000-999999)
+const char*    DEVICE_NAME = "ESP32-Autonomous-Boat";
+const uint32_t BLE_PIN     = 191106;   // <-- ĐỔI PIN (6 chữ số, 000000-999999)
 const bool     CLEAR_BONDS = false;    // đặt true, nạp 1 lần để xoá mọi thiết bị đã ghép (nên làm sau khi đổi PIN)
 
 const int PIN_L_RPWM = 25;   // D25

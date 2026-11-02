@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Điều khiển ESP32 qua BLE</title>
+<style>
+:root{--bg:#e7eaed;--panel:#f7f8f9;--ink:#18232e;--mute:#5b6b7a;--line:#c5ccd3;--accent:#0f6e66;--accent-ink:#fff;--danger:#c62828;--ok:#2e7d32;--log:#10171d;--logink:#bfe9e3}
+@media(prefers-color-scheme:dark){:root{--bg:#12181e;--panel:#1b242d;--ink:#e6ecf1;--mute:#93a3b2;--line:#2e3b47;--accent:#3cb8aa;--accent-ink:#06201d;--danger:#e5484d;--ok:#5ac469;--log:#0b1014}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bahnschrift","Segoe UI",system-ui,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:12px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 12px}
+h1{font-size:1.15rem;margin:0}
+#status{font-size:.85rem;color:var(--mute)}
+#status.on{color:var(--ok)}
+button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;cursor:pointer;min-height:44px}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+nav{display:flex;gap:6px;margin-bottom:10px}
+nav button{flex:1;border-radius:8px}
+nav button[aria-selected=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+section[hidden]{display:none}
+.row{display:flex;align-items:center;gap:8px}
+.motor{margin-bottom:18px}
+.motor .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.motor .val{font-size:1.6rem;font-variant-numeric:tabular-nums;font-weight:600}
+.step{width:48px;font-size:1.3rem;padding:0}
+input[type=range]{flex:1;min-width:0;height:44px;accent-color:var(--accent)}
+.opts{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+label.chk{display:flex;gap:8px;align-items:center}
+#jgb{width:100%;font-size:1.05rem}
+#jgb[aria-pressed=true]{background:var(--ok);border-color:var(--ok);color:#fff}
+#estop{width:100%;margin-top:16px;min-height:76px;font-size:1.3rem;font-weight:700;background:var(--danger);border-color:var(--danger);color:#fff;border-radius:12px;letter-spacing:.02em}
+#estopBar{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--danger);color:#fff;border-radius:8px;padding:8px 12px;margin-bottom:14px}
+#estopBar[hidden]{display:none}
+#estopBar button{background:#fff;color:#7f1111;border-color:#fff}
+.big{font-size:2.4rem;font-weight:600;font-variant-numeric:tabular-nums}
+#log{background:var(--log);color:var(--logink);font:13px/1.5 ui-monospace,Consolas,monospace;height:300px;overflow:auto;border-radius:8px;padding:10px;margin:10px 0;white-space:pre-wrap}
+#log .err{color:#ff8a80}#log .sys{color:#9fb3c2}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:20px;max-width:340px;width:90%}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog input{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:10px 0}
+#pwErr{color:var(--danger);min-height:1.3em;margin:0;font-size:.9rem}
+.lock{opacity:.5;pointer-events:none}
+p.hint{color:var(--mute);font-size:.9rem;margin:6px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Điều khiển ESP32</h1><div id="status">Chưa kết nối</div></div>
+    <button id="btnConn" class="primary">Kết nối</button>
+  </header>
+
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" data-tab="ctl">Điều khiển</button>
+    <button role="tab" aria-selected="false" data-tab="set">Cài đặt</button>
+    <button role="tab" aria-selected="false" data-tab="ser">Serial</button>
+  </nav>
+
+  <section id="ctl">
+    <div id="estopBar" hidden><strong>Đã dừng khẩn cấp</strong><button id="btnReset">Mở khoá</button></div>
+    <div id="ctlBody" class="lock">
+      <div class="opts">
+        <label class="chk"><input type="checkbox" id="link" checked> Hai động cơ chạy cùng tốc độ</label>
+        <button id="btnZero">Về 0</button>
+      </div>
+
+      <div class="motor">
+        <div class="head"><span>Động cơ trái</span><span class="val" id="vL">0%</span></div>
+        <div class="row">
+          <button class="step" data-m="0" data-d="-1" aria-label="Giảm động cơ trái 1">−</button>
+          <input type="range" id="sL" min="-100" max="100" value="0" aria-label="Tốc độ động cơ trái">
+          <button class="step" data-m="0" data-d="1" aria-label="Tăng động cơ trái 1">+</button>
+        </div>
+      </div>
+
+      <div class="motor">
+        <div class="head"><span>Động cơ phải</span><span class="val" id="vR">0%</span></div>
+        <div class="row">
+          <button class="step" data-m="1" data-d="-1" aria-label="Giảm động cơ phải 1">−</button>
+          <input type="range" id="sR" min="-100" max="100" value="0" aria-label="Tốc độ động cơ phải">
+          <button class="step" data-m="1" data-d="1" aria-label="Tăng động cơ phải 1">+</button>
+        </div>
+      </div>
+      <p class="hint">Giá trị âm = quay ngược. Tốc độ bị giới hạn bởi mục Cài đặt.</p>
+
+      <div style="margin-top:16px"><button id="jgb" aria-pressed="false">Động cơ JGB37-555: TẮT</button></div>
+    </div>
+    <button id="estop" disabled>DỪNG KHẨN CẤP</button>
+  </section>
+
+  <section id="set" hidden>
+    <div id="setBody" class="lock">
+      <div class="head" style="display:flex;justify-content:space-between"><span>Giới hạn tốc độ tối đa</span><span class="val" id="vLim" style="font-weight:600">100%</span></div>
+      <input type="range" id="sLim" min="10" max="100" value="100" style="width:100%" aria-label="Giới hạn tốc độ tối đa">
+      <p class="hint">Áp dụng cho cả hai động cơ 775 và được lưu trong ESP32 (giữ nguyên sau khi mất điện).</p>
+    </div>
+  </section>
+
+  <section id="ser" hidden>
+    <div>Khoảng cách SRF04</div>
+    <div class="big" id="dist">-- cm</div>
+    <div id="log" role="log" aria-live="off"></div>
+    <button id="btnClear">Xoá log</button>
+  </section>
+</div>
+
+<dialog id="pwDlg">
+  <form method="dialog" id="pwForm">
+    <strong>Nhập mật khẩu</strong>
+    <input type="password" id="pw" autocomplete="off" aria-label="Mật khẩu">
+    <p id="pwErr"></p>
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" id="pwCancel">Huỷ</button>
+      <button type="submit" class="primary">Đăng nhập</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const RXU = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // web ghi vào đây
+const TXU = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // ESP32 notify
+
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+let dev, rx, tx, authed = false;
+let spd = [0, 0], limit = 100, jgb = false, estop = false;
+let chain = Promise.resolve(), motorTimer = null;
+
+/* ---------- Log ---------- */
+function log(msg, cls = '') {
+  const el = $('log'), t = new Date().toLocaleTimeString('vi-VN');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = `[${t}] ${msg}`;
+  el.appendChild(line);
+  while (el.childNodes.length > 300) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+$('btnClear').onclick = () => $('log').replaceChildren();
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
+  ['ctl', 'set', 'ser'].forEach(id => $(id).hidden = id !== b.dataset.tab);
+});
+
+/* ---------- Gửi lệnh ---------- */
+function send(text) {
+  if (!rx) return Promise.resolve();
+  chain = chain.then(() => rx.writeValue(enc.encode(text)))
+               .catch(e => log('Lỗi gửi "' + text + '": ' + e.message, 'err'));
+  return chain;
+}
+function pushMotors() {
+  if (motorTimer) return;
+  motorTimer = setTimeout(() => { motorTimer = null; send(`M:${spd[0]},${spd[1]}`); }, 50);
+}
+
+/* ---------- Giao diện ---------- */
+function render() {
+  $('sL').min = $('sR').min = -limit;
+  $('sL').max = $('sR').max = limit;
+  $('sL').value = spd[0]; $('sR').value = spd[1];
+  $('vL').textContent = spd[0] + '%'; $('vR').textContent = spd[1] + '%';
+  $('sLim').value = limit; $('vLim').textContent = limit + '%';
+  $('jgb').setAttribute('aria-pressed', jgb);
+  $('jgb').textContent = 'Động cơ JGB37-555: ' + (jgb ? 'BẬT' : 'TẮT');
+  $('estopBar').hidden = !estop;
+  $('ctlBody').classList.toggle('lock', !authed || estop);
+  $('setBody').classList.toggle('lock', !authed);
+  $('estop').disabled = !authed;
+}
+function setSpeed(i, v) {
+  v = Math.max(-limit, Math.min(limit, Math.round(v)));
+  if ($('link').checked) spd = [v, v]; else spd[i] = v;
+  render(); pushMotors();
+}
+$('sL').oninput = e => setSpeed(0, +e.target.value);
+$('sR').oninput = e => setSpeed(1, +e.target.value);
+document.querySelectorAll('.step').forEach(b => b.onclick = () => {
+  const i = +b.dataset.m; setSpeed(i, spd[i] + +b.dataset.d);
+});
+$('btnZero').onclick = () => { spd = [0, 0]; render(); send('M:0,0'); };
+$('jgb').onclick = () => { jgb = !jgb; render(); send('J:' + (jgb ? 1 : 0)); };
+$('estop').onclick = () => { spd = [0, 0]; jgb = false; estop = true; render(); send('E'); log('Dừng khẩn cấp', 'err'); };
+$('btnReset').onclick = () => send('RESET');
+$('sLim').oninput = e => { $('vLim').textContent = e.target.value + '%'; };
+$('sLim').onchange = e => send('LIM:' + e.target.value);
+
+/* ---------- Nhận dữ liệu ---------- */
+function onMsg(e) {
+  const m = dec.decode(e.target.value).trim();
+  if (m.startsWith('D:')) {
+    const d = m.slice(2);
+    if (d === '--') { $('dist').textContent = 'Ngoài tầm đo'; log('Khoảng cách: ngoài tầm đo'); }
+    else { $('dist').textContent = d + ' cm'; log('Khoảng cách: ' + d + ' cm'); }
+  } else if (m.startsWith('S:')) {
+    const [l, r, j, lim, es] = m.slice(2).split(',').map(Number);
+    spd = [l, r]; jgb = !!j; limit = lim; estop = !!es; render();
+  } else if (m === 'AUTH_OK') {
+    authed = true; $('pwDlg').close(); setStatus('Đã đăng nhập', true); log('Đăng nhập thành công', 'sys'); render();
+  } else if (m.startsWith('AUTH_FAIL')) {
+    const n = m.split(':')[1];
+    $('pwErr').textContent = `Sai mật khẩu (lần ${n}/3).`; $('pw').select();
+    log('Sai mật khẩu', 'err');
+  } else if (m === 'ERR:ESTOP') {
+    log('Đang dừng khẩn cấp: hãy mở khoá trước', 'err');
+  } else if (m === 'ERR:AUTH') {
+    log('Chưa đăng nhập', 'err');
+  }
+}
+
+/* ---------- Kết nối ---------- */
+function setStatus(t, on) { $('status').textContent = t; $('status').classList.toggle('on', !!on); }
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    alert('Trình duyệt không hỗ trợ Web Bluetooth. Hãy dùng Chrome hoặc Edge (trang phải chạy HTTPS hoặc localhost).');
+    return;
+  }
+  try {
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+    dev.addEventListener('gattserverdisconnected', onDisc);
+    setStatus('Đang kết nối...');
+    const srv = await dev.gatt.connect();
+    const svc = await srv.getPrimaryService(SVC);
+    rx = await svc.getCharacteristic(RXU);
+    tx = await svc.getCharacteristic(TXU);
+    tx.addEventListener('characteristicvaluechanged', onMsg);
+    await tx.startNotifications();
+    $('btnConn').textContent = 'Ngắt kết nối';
+    setStatus('Đã kết nối, chờ mật khẩu');
+    log('Đã kết nối ' + (dev.name || 'ESP32'), 'sys');
+    askPassword();
+  } catch (e) {
+    setStatus('Chưa kết nối');
+    if (e.name !== 'NotFoundError') log('Lỗi kết nối: ' + e.message, 'err');
+  }
+}
+function askPassword() {
+  $('pw').value = ''; $('pwErr').textContent = '';
+  $('pwDlg').showModal(); $('pw').focus();
+}
+$('pwForm').onsubmit = () => { send('AUTH:' + $('pw').value); return false; };
+$('pwForm').addEventListener('submit', e => e.preventDefault());
+$('pwCancel').onclick = () => { $('pwDlg').close(); disconnect(); };
+
+function disconnect() { if (dev && dev.gatt.connected) dev.gatt.disconnect(); }
+function onDisc() {
+  authed = false; rx = tx = null; spd = [0, 0]; jgb = false; estop = false;
+  $('btnConn').textContent = 'Kết nối';
+  $('dist').textContent = '-- cm';
+  if ($('pwDlg').open) $('pwDlg').close();
+  setStatus('Chưa kết nối'); log('Đã ngắt kết nối', 'sys'); render();
+}
+$('btnConn').onclick = () => (dev && dev.gatt.connected) ? disconnect() : connect();
+render();
+</script>
+</body>
+</html>
